@@ -95,9 +95,10 @@ class NunchakuFluxTransformerBlocks(nn.Module):
         assert image_rotary_emb.ndim == 6
         assert image_rotary_emb.shape[0] == 1
         assert image_rotary_emb.shape[1] == 1
-        assert image_rotary_emb.shape[2] == batch_size * (txt_tokens + img_tokens)
+        #assert image_rotary_emb.shape[2] == batch_size * (txt_tokens + img_tokens)
         # [bs, tokens, head_dim / 2, 1, 2] (sincos)
-        image_rotary_emb = image_rotary_emb.reshape([batch_size, txt_tokens + img_tokens, *image_rotary_emb.shape[3:]])
+        image_rotary_emb = image_rotary_emb.reshape([1, txt_tokens + img_tokens, *image_rotary_emb.shape[3:]])
+        image_rotary_emb = image_rotary_emb.expand(batch_size, -1, -1, -1, -1)
         rotary_emb_txt = image_rotary_emb[:, :txt_tokens, ...]  # .to(self.dtype)
         rotary_emb_img = image_rotary_emb[:, txt_tokens:, ...]  # .to(self.dtype)
         rotary_emb_single = image_rotary_emb  # .to(self.dtype)
@@ -105,6 +106,8 @@ class NunchakuFluxTransformerBlocks(nn.Module):
         rotary_emb_txt = self.pack_rotemb(pad_tensor(rotary_emb_txt, 256, 1))
         rotary_emb_img = self.pack_rotemb(pad_tensor(rotary_emb_img, 256, 1))
         rotary_emb_single = self.pack_rotemb(pad_tensor(rotary_emb_single, 256, 1))
+        
+
         hidden_states = self.m.forward(
             hidden_states,
             encoder_hidden_states,
