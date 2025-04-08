@@ -19,6 +19,7 @@ from ...lora.flux.nunchaku_converter import fuse_vectors, to_nunchaku
 from ...lora.flux.utils import is_nunchaku_format
 from ...utils import get_precision, load_state_dict_in_safetensors
 
+
 SVD_RANK = 32
 
 # Get log level from environment variable (default to INFO)
@@ -311,6 +312,8 @@ class NunchakuFluxTransformer2dModel(FluxTransformer2DModel, NunchakuModelLoader
         unquantized_part_sd = load_file(unquantized_part_path)
         transformer.load_state_dict(unquantized_part_sd, strict=False)
         transformer._unquantized_part_sd = unquantized_part_sd
+        
+        return transformer,m #debug
 
         return transformer
 
