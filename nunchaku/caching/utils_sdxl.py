@@ -185,7 +185,10 @@ def cached_forward_sdxl(
         down_intrablock_additional_residuals = down_block_additional_residuals
         is_adapter = True
 
-    down_block_res_samples = (sample,)
+    if is_adapter:
+        down_intrablock_additional_residuals = list(down_intrablock_additional_residuals)
+
+    down_block_res_samples = [sample]
 
     # 3.2 FBCache: Process first down_block
     first_block = self.down_blocks[0]
@@ -208,7 +211,7 @@ def cached_forward_sdxl(
         sample, res_samples = first_block(hidden_states=sample, temb=emb)
         if is_adapter and len(down_intrablock_additional_residuals) > 0:
             sample += down_intrablock_additional_residuals.pop(0)
-    down_block_res_samples += res_samples
+    down_block_res_samples.extend(res_samples)
 
     # 3.3 FBCache: Check cache using first block output sample
     can_use_cache, diff = get_can_use_cache(
@@ -218,29 +221,29 @@ def cached_forward_sdxl(
         mode="single",
     )
 
+    cached_output = get_buffer("final_output") if can_use_cache else None
+    can_use_cache = can_use_cache and cached_output is not None
+
     # 3.4 FBCache: Apply caching logic
     torch._dynamo.graph_break()
     if can_use_cache:
         if self.verbose:
             print(f"[SDXL] Cache hit!!! (diff: {diff:.6f})")
         # Skip all remaining computation and get final output (after post-process)
-        sample = get_buffer("final_output")
+        sample = cached_output.to(device=sample.device, dtype=sample.dtype)
     else:
         if self.verbose:
             print(f"[SDXL] Cache miss!!! (diff: {diff:.6f})")
         # Store first block output for next comparison
         set_buffer("first_single_hidden_states_residual", sample)
 
-        # Make a copy to preserve state
-        down_intrablock_additional_residuals_copy = list(down_intrablock_additional_residuals) if is_adapter else []
-
         # Process remaining down blocks
         for downsample_block in self.down_blocks[1:]:
             if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
                 # For t2i-adapter CrossAttnDownBlock2D
                 additional_residuals = {}
-                if is_adapter and len(down_intrablock_additional_residuals_copy) > 0:
-                    additional_residuals["additional_residuals"] = down_intrablock_additional_residuals_copy.pop(0)
+                if is_adapter and len(down_intrablock_additional_residuals) > 0:
+                    additional_residuals["additional_residuals"] = down_intrablock_additional_residuals.pop(0)
 
                 sample, res_samples = downsample_block(
                     hidden_states=sample,
@@ -253,21 +256,16 @@ def cached_forward_sdxl(
                 )
             else:
                 sample, res_samples = downsample_block(hidden_states=sample, temb=emb)
-                if is_adapter and len(down_intrablock_additional_residuals_copy) > 0:
-                    sample += down_intrablock_additional_residuals_copy.pop(0)
+                if is_adapter and len(down_intrablock_additional_residuals) > 0:
+                    sample += down_intrablock_additional_residuals.pop(0)
 
-            down_block_res_samples += res_samples
+            down_block_res_samples.extend(res_samples)
 
         if is_controlnet:
-            new_down_block_res_samples = ()
-
-            for down_block_res_sample, down_block_additional_residual in zip(
-                down_block_res_samples, down_block_additional_residuals
-            ):
-                down_block_res_sample = down_block_res_sample + down_block_additional_residual
-                new_down_block_res_samples = new_down_block_res_samples + (down_block_res_sample,)
-
-            down_block_res_samples = new_down_block_res_samples
+            down_block_res_samples = [
+                residual + additional
+                for residual, additional in zip(down_block_res_samples, down_block_additional_residuals)
+            ]
 
         # 4. mid
         if self.mid_block is not None:
@@ -286,10 +284,10 @@ def cached_forward_sdxl(
             # To support T2I-Adapter-XL
             if (
                 is_adapter
-                and len(down_intrablock_additional_residuals_copy) > 0
-                and sample.shape == down_intrablock_additional_residuals_copy[0].shape
+                and len(down_intrablock_additional_residuals) > 0
+                and sample.shape == down_intrablock_additional_residuals[0].shape
             ):
-                sample += down_intrablock_additional_residuals_copy.pop(0)
+                sample += down_intrablock_additional_residuals.pop(0)
 
         if is_controlnet:
             sample = sample + mid_block_additional_residual
@@ -298,7 +296,7 @@ def cached_forward_sdxl(
         for i, upsample_block in enumerate(self.up_blocks):
             is_final_block = i == len(self.up_blocks) - 1
 
-            res_samples = down_block_res_samples[-len(upsample_block.resnets) :]
+            res_samples = tuple(down_block_res_samples[-len(upsample_block.resnets) :])
             down_block_res_samples = down_block_res_samples[: -len(upsample_block.resnets)]
 
             # if we have not reached the final block and need to forward the

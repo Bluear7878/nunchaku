@@ -90,19 +90,25 @@ def apply_cache_on_pipe(pipe: DiffusionPipeline, *, residual_diff_threshold=0.12
 
     Notes
     -----
-    The pipeline class's ``__call__`` is patched for all instances.
+    Only this pipeline instance is patched. Other instances keep their original behavior.
     """
     # Wrap pipeline __call__ with cache context
     if not getattr(pipe, "_is_cached", False):
-        original_call = pipe.__class__.__call__
+        original_class = pipe.__class__
+        original_call = original_class.__call__
 
         @functools.wraps(original_call)
         def new_call(self, *args, **kwargs):
             with cache_context(create_cache_context()):
                 return original_call(self, *args, **kwargs)
 
-        pipe.__class__.__call__ = new_call
-        pipe.__class__._is_cached = True
+        # Special methods are resolved on the type; preserve the name used by save_pretrained.
+        pipe.__class__ = type(
+            original_class.__name__,
+            (original_class,),
+            {"__call__": new_call, "__module__": original_class.__module__},
+        )
+        pipe._is_cached = True
 
     # Apply caching to UNet
     apply_cache_on_unet(pipe.unet, residual_diff_threshold=residual_diff_threshold, verbose=verbose)
