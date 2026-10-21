@@ -7,6 +7,7 @@ import math
 import torch
 
 from .._C import ops
+from .nvfp4_sm100 import is_datacenter_blackwell
 
 
 def svdq_gemm_w4a4_cuda(
@@ -122,6 +123,8 @@ def svdq_gemm_w4a4_cuda(
     - H: number of heads
     - D: head dimension
     """
+    if fp4 and is_datacenter_blackwell(act.device):
+        raise NotImplementedError("This NVFP4 kernel needs sm_120 / sm_121; on sm_100 / sm_103 use SVDQW4A4Linear.")
     if lora_scales is None:
         rank = lora_up.shape[1]
         lora_scales = [1.0] * math.ceil(rank / 16)

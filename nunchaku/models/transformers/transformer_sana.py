@@ -16,6 +16,7 @@ from torch.nn import functional as F
 
 from ..._C import QuantizedSanaModel
 from ..._C import utils as cutils
+from ...ops.nvfp4_sm100 import is_datacenter_blackwell
 from ...utils import get_precision
 from .utils import NunchakuModelLoaderMixin
 
@@ -339,6 +340,8 @@ def load_quantized_module(
         pag_layers = [pag_layers]
     device = torch.device(device)
     assert device.type == "cuda"
+    if use_fp4 and is_datacenter_blackwell(device):
+        raise NotImplementedError("The C++ engine has no NVFP4 path on sm_100 / sm_103.")
 
     m = QuantizedSanaModel()
     cutils.disable_memory_auto_release()

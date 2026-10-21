@@ -18,6 +18,7 @@ from huggingface_hub import utils
 
 from nunchaku.models.unets.unet_sdxl import NunchakuSDXLFeedForward
 
+from ...ops import nvfp4_sm100
 from ...ops.gemm import svdq_gemm_w4a4_cuda
 from ...ops.quantize import svdq_quantize_w4a4_act_fuse_lora_cuda
 from ...utils import get_precision, pad_tensor
@@ -78,6 +79,21 @@ class NunchakuZImageFusedModule(nn.Module):
         for name, param in norm_k.named_parameters(prefix="norm_k_"):
             setattr(self, name.replace(".", ""), param)
 
+    def nvfp4_sm100_params(self) -> nvfp4_sm100.LinearParams | None:
+        """The parameters of the QKV projection for :mod:`nunchaku.ops.nvfp4_sm100`, or None if it is not NVFP4."""
+        if self.qkv_precision != "nvfp4":
+            return None
+        return nvfp4_sm100.LinearParams(
+            self.qkv_qweight,
+            self.qkv_wscales,
+            self.qkv_smooth_factor,
+            self.qkv_proj_down,
+            self.qkv_proj_up,
+            getattr(self, "qkv_bias", None),
+            self.qkv_wcscales,
+            self.qkv_out_features,
+        )
+
     def forward(self, x: torch.Tensor, freqs_cis: Optional[torch.Tensor] = None):
         """
         Fuse QKV projection, RMS normalizaion and rotary embedding.
@@ -93,6 +109,9 @@ class NunchakuZImageFusedModule(nn.Module):
         -------
         The projection results of q, k, v. q result and k result are RMS-normalized and applied RoPE.
         """
+        if self.qkv_precision == "nvfp4" and nvfp4_sm100.is_datacenter_blackwell(x.device):
+            qkv = self.nvfp4_sm100_params()
+            return nvfp4_sm100.qkv_norm_rope(x, qkv, self.norm_q_weight, self.norm_k_weight, freqs_cis)
         batch_size, seq_len, channels = x.shape
         x = x.view(batch_size * seq_len, channels)
         quantized_x, ascales, lora_act_out = svdq_quantize_w4a4_act_fuse_lora_cuda(
@@ -414,5 +433,6 @@ class NunchakuZImageTransformer2DModel(ZImageTransformer2DModel, NunchakuModelLo
             convert_fp16(transformer, model_state_dict)
 
         transformer.load_state_dict(model_state_dict)
+        nvfp4_sm100.prepare_model(transformer)
 
         return transformer

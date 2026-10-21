@@ -28,7 +28,9 @@ method loads quantized models and accepts either Hugging Face remote file paths 
 .. note::
 
    The :func:`~nunchaku.utils.get_precision` function automatically detects whether your GPU supports INT4 or FP4 quantization.
-   Use FP4 models for Blackwell GPUs (RTX 50-series) and INT4 models for other architectures.
+   Use FP4 models for Blackwell GPUs (RTX 50-series, B200, B300) and INT4 models for other architectures.
+   On B200 and B300, use the Python-backend examples in ``examples/v1`` (e.g., ``examples/v1/flux.1-dev.py``);
+   the C++-engine model shown above is not supported there.
 
 .. note::
 

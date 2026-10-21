@@ -21,6 +21,7 @@ from diffusers.models.transformers.transformer_qwenimage import (
 from diffusers.utils import logging as diffusers_logging
 from huggingface_hub import utils
 
+from ...ops import nvfp4_sm100
 from ...utils import get_precision
 from ..attention import NunchakuBaseAttention, NunchakuFeedForward
 from ..attention_processors.qwenimage import NunchakuQwenImageNaiveFA2Processor
@@ -408,6 +409,7 @@ class NunchakuQwenImageTransformer2DModel(QwenImageTransformer2DModel, NunchakuM
         patch_scale_key(transformer, model_state_dict)
 
         transformer.load_state_dict(model_state_dict)
+        nvfp4_sm100.prepare_model(transformer)
         transformer.set_offload(offload)
 
         return transformer

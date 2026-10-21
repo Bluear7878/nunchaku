@@ -22,6 +22,7 @@ from ..._C import QuantizedFluxModel
 from ..._C import utils as cutils
 from ...lora.flux.nunchaku_converter import fuse_vectors, to_nunchaku
 from ...lora.flux.utils import is_nunchaku_format
+from ...ops.nvfp4_sm100 import is_datacenter_blackwell
 from ...utils import check_hardware_compatibility, get_precision, load_state_dict_in_safetensors, pad_tensor
 from .utils import NunchakuModelLoaderMixin
 
@@ -449,6 +450,10 @@ def load_quantized_module(
     """
     device = torch.device(device)
     assert device.type == "cuda"
+    if use_fp4 and is_datacenter_blackwell(device):
+        raise NotImplementedError(
+            "The C++ engine has no NVFP4 path on sm_100 / sm_103; use NunchakuFluxTransformer2DModelV2 instead."
+        )
     m = QuantizedFluxModel()
     cutils.disable_memory_auto_release()
     m.init(use_fp4, offload, bf16, 0 if device.index is None else device.index)

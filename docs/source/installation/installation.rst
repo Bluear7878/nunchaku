@@ -89,6 +89,19 @@ If you're using a **Blackwell (RTX 50-series)** GPU:
 - Use **PyTorch ≥ 2.7** with **CUDA ≥ 12.8**.
 - Use **FP4 models** instead of **INT4 models** for best compatibility and performance.
 
+For data-center Blackwell GPUs (B200, B300)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you're using a **B200** (``sm_100``) or **B300** (``sm_103``) GPU:
+
+- Use **FP4 models**. As on the RTX 50-series, INT4 models are not supported.
+- Use the Python-backend models in ``examples/v1``, such as
+  :class:`~nunchaku.models.transformers.transformer_flux_v2.NunchakuFluxTransformer2DModelV2`.
+  The C++-engine models (:class:`~nunchaku.models.transformers.transformer_flux.NunchakuFluxTransformer2dModel` and
+  :class:`~nunchaku.models.transformers.transformer_sana.NunchakuSanaTransformer2DModel`) raise ``NotImplementedError``
+  on these GPUs.
+- The 4-bit GEMM runs in cuBLAS through ``torch._scaled_mm``.
+
 .. _build-from-source:
 
 Option 2: Build from Source
@@ -102,6 +115,7 @@ Requirements
   - Linux: ≥ 12.2
   - Windows: ≥ 12.6
   - Blackwell GPUs: CUDA ≥ 12.8 required
+  - B300 (``sm_103``): CUDA ≥ 12.9 required
 
 - **Compiler**:
 
@@ -116,6 +130,8 @@ Requirements
    - ``sm_80`` (Ampere: A100)
    - ``sm_86`` (Ampere: RTX 3090, A6000)
    - ``sm_89`` (Ada: RTX 4090)
+   - ``sm_100`` (Blackwell: B200, FP4 models only)
+   - ``sm_103`` (Blackwell: B300, FP4 models only)
    - ``sm_120`` (Blackwell: RTX 5090)
 
 Step 1: Set Up Environment

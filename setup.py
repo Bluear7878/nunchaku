@@ -38,6 +38,8 @@ def get_sm_targets() -> list[str]:
     except:
         raise Exception("nvcc not found")
 
+    support_sm100 = packaging_version.parse(nvcc_version) >= packaging_version.parse("12.8")
+    support_sm103 = packaging_version.parse(nvcc_version) >= packaging_version.parse("12.9")
     support_sm120 = packaging_version.parse(nvcc_version) >= packaging_version.parse("12.8")
     support_sm121 = packaging_version.parse(nvcc_version) >= packaging_version.parse("13.0")
 
@@ -47,16 +49,24 @@ def get_sm_targets() -> list[str]:
         for i in range(torch.cuda.device_count()):
             capability = torch.cuda.get_device_capability(i)
             sm = f"{capability[0]}{capability[1]}"
+            if sm in ["100"] and support_sm100:
+                sm = sm + "a"
+            if sm in ["103"] and support_sm103:
+                sm = sm + "a"
             if sm in ["120"] and support_sm120:
                 sm = sm + "a"
             if sm in ["121"] and support_sm121:
                 sm = sm + "a"
-            assert sm in ["75", "80", "86", "89", "120a", "121a"], f"Unsupported SM {sm}"
+            assert sm in ["75", "80", "86", "89", "100a", "103a", "120a", "121a"], f"Unsupported SM {sm}"
             if sm not in ret:
                 ret.append(sm)
     else:
         assert install_mode == "ALL"
         ret = ["75", "80", "86", "89"]
+        if support_sm100:
+            ret.extend(["100a"])
+        if support_sm103:
+            ret.extend(["103a"])
         if support_sm120:
             ret.extend(["120a"])
         if support_sm121:
@@ -176,6 +186,7 @@ if __name__ == "__main__":
             "src/kernels/zgemm/gemm_w4a4_launch_bf16_int4.cu",
             "src/kernels/zgemm/gemm_w4a4_launch_bf16_fp4.cu",
             "src/kernels/zgemm/gemm_w8a8.cu",
+            "src/kernels/zgemm/nvfp4_sm100.cu",
             "src/kernels/zgemm/attention.cu",
             "src/kernels/dwconv.cu",
             "src/kernels/gemm_batched.cu",
