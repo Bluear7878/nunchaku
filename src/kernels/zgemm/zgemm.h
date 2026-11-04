@@ -45,6 +45,12 @@ void quantize_w4a4_act_fuse_lora(Tensor input,
                                  bool fuse_glu = false,
                                  bool fp4      = false);
 void quantize_w4a4_act(Tensor input, Tensor output, Tensor oscales);
+// NVFP4 activations for cuBLAS on sm_100a / sm_103a: output [M, K / 2] row-major, oscales swizzled 128 x 4 tiles
+void quantize_nvfp4_act_sm100(Tensor input, Tensor smooth, Tensor output, Tensor oscales);
+// in-place RMSNorm + RoPE on the Q and K parts of [M, 3 * H * 128] (rotary_emb in pack_rotemb layout)
+void qk_rmsnorm_rope_sm100(Tensor qkv, Tensor norm_q, Tensor norm_k, Tensor rotary_emb, int seq_len, float eps);
+// in place: out = out * wcscales + bias (bias optional)
+void scale_bias_sm100(Tensor out, Tensor wcscales, Tensor bias);
 void quantize_w4a4_wgt(Tensor input, Tensor output, Tensor oscales);
 
 void gemm_w8a8(Tensor act,     // [M, K]

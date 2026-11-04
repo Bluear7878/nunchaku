@@ -18,6 +18,7 @@ from diffusers.models.transformers.transformer_flux import (
 from huggingface_hub import utils
 from torch.nn import GELU
 
+from ...ops import nvfp4_sm100
 from ...ops.fused import fused_gelu_mlp
 from ...utils import get_precision, pad_tensor
 from ..attention import NunchakuBaseAttention, NunchakuFeedForward
@@ -424,6 +425,7 @@ class NunchakuFluxTransformer2DModelV2(FluxTransformer2DModel, NunchakuModelLoad
         patch_scale_key(transformer, converted_state_dict)
 
         transformer.load_state_dict(converted_state_dict)
+        nvfp4_sm100.prepare_model(transformer)
 
         return transformer
 

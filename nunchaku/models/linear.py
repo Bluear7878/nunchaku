@@ -5,6 +5,7 @@ Quantized linear layers for Nunchaku.
 import torch
 from torch import nn
 
+from ..ops import nvfp4_sm100
 from ..ops.gemm import svdq_gemm_w4a4_cuda
 from ..ops.gemv import awq_gemv_w4a16_cuda
 from ..ops.quantize import svdq_quantize_w4a4_act_fuse_lora_cuda
@@ -181,6 +182,11 @@ class SVDQW4A4Linear(nn.Module):
         """
         batch_size, seq_len, channels = x.shape
         x = x.reshape(batch_size * seq_len, channels)
+        if nvfp4_sm100.uses_nvfp4_sm100(self, x.device):
+            result = nvfp4_sm100.linear_forward(self, x)
+            if output is not None:
+                result = output.view(batch_size * seq_len, -1).copy_(result)
+            return result.reshape(batch_size, seq_len, -1)
         if output is None:
             output = torch.empty(batch_size * seq_len, self.out_features, dtype=x.dtype, device=x.device)
         quantized_x, ascales, lora_act_out = self.quantize(x)

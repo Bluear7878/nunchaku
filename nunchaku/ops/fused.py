@@ -9,6 +9,7 @@ from torch.nn import RMSNorm
 from nunchaku.models.linear import SVDQW4A4Linear
 
 from ..utils import ceil_divide
+from . import nvfp4_sm100
 from .gemm import svdq_gemm_w4a4_cuda
 
 
@@ -44,6 +45,8 @@ def fused_gelu_mlp(x: torch.Tensor, fc1: SVDQW4A4Linear, fc2: SVDQW4A4Linear, pa
       - C_out: output features
     - For INT4 quantization, GELU activations are shifted by 0.171875 to ensure non-negativity, enabling unsigned quantization for improved quality. See: https://github.com/nunchux-ai/nunchaku/blob/433f0b228a61a53fb700ac676fd2e290368ac94d/src/kernels/zgemm/gemm_w4a4_launch_impl.cuh#L286
     """
+    if nvfp4_sm100.uses_nvfp4_sm100(fc1, x.device):
+        return nvfp4_sm100.gelu_mlp(x, fc1, fc2)
     batch_size, seq_len, channels = x.shape
     x = x.view(batch_size * seq_len, channels)
     quantized_x, ascales, lora_act = fc1.quantize(x)
@@ -132,6 +135,16 @@ def fused_qkv_norm_rottary(
         norm_k is None or isinstance(norm_k, RMSNorm) or (isinstance(norm_k, DiffUsersRMSNorm) and norm_k.bias is None)
     )
 
+    if nvfp4_sm100.uses_nvfp4_sm100(proj, x.device):
+        if isinstance(output, tuple):
+            raise NotImplementedError(
+                "Packed Q/K/V outputs (the nunchaku-fp16 attention processor) are not supported on sm_100/sm_103; "
+                "use the flashattn2 processor."
+            )
+        result = nvfp4_sm100.qkv_norm_rope(x, proj, norm_q, norm_k, rotary_emb)
+        if output is not None:
+            result = output.view(result.shape).copy_(result)
+        return result
     batch_size, seq_len, channels = x.shape
     x = x.view(batch_size * seq_len, channels)
     quantized_x, ascales, lora_act = proj.quantize(x)

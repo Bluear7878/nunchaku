@@ -111,6 +111,30 @@ void quantize_w4a4_act_fuse_lora(std::optional<torch::Tensor> input,
                                                    fp4);
 }
 
+void quantize_nvfp4_act_sm100(torch::Tensor input, torch::Tensor smooth, torch::Tensor output, torch::Tensor oscales) {
+    TorchOpContext ctx;
+    nunchaku::kernels::quantize_nvfp4_act_sm100(
+        from_torch(input), from_torch(smooth), from_torch(output), from_torch(oscales));
+}
+
+void qk_rmsnorm_rope_sm100(torch::Tensor qkv,
+                           std::optional<torch::Tensor> norm_q,
+                           std::optional<torch::Tensor> norm_k,
+                           std::optional<torch::Tensor> rotary_emb,
+                           int seq_len,
+                           float eps) {
+    TorchOpContext ctx;
+    auto getTensor = [](std::optional<torch::Tensor> &t) { return t.has_value() ? from_torch(t.value()) : Tensor{}; };
+    nunchaku::kernels::qk_rmsnorm_rope_sm100(
+        from_torch(qkv), getTensor(norm_q), getTensor(norm_k), getTensor(rotary_emb), seq_len, eps);
+}
+
+void scale_bias_sm100(torch::Tensor out, torch::Tensor wcscales, std::optional<torch::Tensor> bias) {
+    TorchOpContext ctx;
+    nunchaku::kernels::scale_bias_sm100(
+        from_torch(out), from_torch(wcscales), bias.has_value() ? from_torch(bias.value()) : Tensor{});
+}
+
 void attention_fp16(torch::Tensor q, // packed [Batch, Head, TokensQ, HEAD_DIM]
                     torch::Tensor k, // packed [Batch, Head, TokensKV, HEAD_DIM]
                     torch::Tensor v, // packed [Batch, Head, TokensKV, HEAD_DIM]

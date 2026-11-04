@@ -6,6 +6,7 @@ import torch
 
 from .._C import ops
 from ..utils import ceil_divide
+from .nvfp4_sm100 import is_datacenter_blackwell
 
 
 def svdq_quantize_w4a4_act_fuse_lora_cuda(
@@ -62,6 +63,8 @@ def svdq_quantize_w4a4_act_fuse_lora_cuda(
     - G: group size (64 for INT4, 16 for NVFP4)
     - M_pad: padded batch size = ceil(M / pad_size) * pad_size
     """
+    if fp4 and is_datacenter_blackwell(input.device):
+        raise NotImplementedError("This NVFP4 kernel needs sm_120 / sm_121; on sm_100 / sm_103 use SVDQW4A4Linear.")
     batch_size, channels = input.shape
     rank = lora_down.shape[1]
     batch_size_pad = ceil_divide(batch_size, pad_size) * pad_size

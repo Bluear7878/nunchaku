@@ -436,6 +436,104 @@ class NunchakuWeightPacker(MmaWeightPackerBase):
             weight = weight.permute(0, 2, 1, 3).contiguous().view(c, r)
         return weight
 
+    def unpack_weight(self, weight: torch.Tensor) -> torch.Tensor:
+        """
+        Unpack weight tensor packed by :meth:`pack_weight`.
+
+        Parameters
+        ----------
+        weight : torch.Tensor
+            Packed 4-bit weight tensor of dtype torch.int8 and shape (n, k // 2).
+
+        Returns
+        -------
+        torch.Tensor
+            Quantized weight tensor of dtype torch.int32 and shape (n, k), with values in [0, 16).
+        """
+        assert self.bits == 4, f"weight bits {self.bits} is not supported."
+        n, k = weight.shape[0], weight.shape[1] * 2
+        n_tiles, k_tiles = n // self.mem_n, k // self.mem_k
+        shift = torch.arange(0, 32, 4, dtype=torch.int32, device=weight.device)
+        weight = weight.contiguous().view(dtype=torch.int32).unsqueeze(-1).bitwise_right_shift(shift).bitwise_and_(0xF)
+        weight = weight.view(
+            n_tiles,
+            k_tiles,
+            self.num_k_packs,
+            self.num_n_packs,
+            self.num_n_lanes,
+            self.num_k_lanes,
+            self.n_pack_size,
+            self.k_pack_size,
+            self.reg_n,
+            self.reg_k,
+        )
+        # (n_tiles, k_tiles, num_k_packs, num_n_packs, num_n_lanes, num_k_lanes, n_pack_size, k_pack_size, reg_n, reg_k)
+        # =>
+        # (n_tiles, num_n_packs, n_pack_size, num_n_lanes, reg_n, k_tiles, num_k_packs, k_pack_size, num_k_lanes, reg_k)
+        weight = weight.permute(0, 3, 6, 4, 8, 1, 2, 7, 5, 9).contiguous()
+        return weight.view(n, k)
+
+    def unpack_scale(self, scale: torch.Tensor, n: int, group_size: int) -> torch.Tensor:
+        """
+        Unpack scale tensor packed by :meth:`pack_scale`.
+
+        Parameters
+        ----------
+        scale : torch.Tensor
+            Packed scale tensor.
+        n : int
+            Number of output channels.
+        group_size : int
+            Group size for quantization (-1 for one value per channel).
+
+        Returns
+        -------
+        torch.Tensor
+            Scale tensor of shape (n, number of groups).
+        """
+        if self.check_if_micro_scale(group_size=group_size):
+            return self.unpack_micro_scale(scale, n, group_size=group_size)
+        s_pack_size = min(max(self.warp_n // self.num_lanes, 2), 8)
+        num_s_lanes = min(self.num_lanes, self.warp_n // s_pack_size)
+        num_s_packs = self.warp_n // (s_pack_size * num_s_lanes)
+        warp_s = num_s_packs * num_s_lanes * s_pack_size
+        scale = scale.reshape(n // warp_s, -1, num_s_packs, num_s_lanes // 4, 4, s_pack_size // 2, 2)
+        # (n_tiles, groups, num_s_packs, num_s_lanes // 4, 4, s_pack_size // 2, 2)
+        # =>
+        # (n_tiles, num_s_packs, num_s_lanes // 4, s_pack_size // 2, 4, 2, groups)
+        scale = scale.permute(0, 2, 3, 5, 4, 6, 1).contiguous()
+        return scale.view(n, -1)
+
+    def unpack_micro_scale(self, scale: torch.Tensor, n: int, group_size: int) -> torch.Tensor:
+        """
+        Unpack micro scale tensor packed by :meth:`pack_micro_scale`.
+
+        Parameters
+        ----------
+        scale : torch.Tensor
+            Packed micro scale tensor of dtype torch.float8_e4m3fn.
+        n : int
+            Number of output channels.
+        group_size : int
+            Group size for quantization (must be 16).
+
+        Returns
+        -------
+        torch.Tensor
+            Micro scale tensor of dtype torch.float8_e4m3fn and shape (n, k // group_size).
+        """
+        assert group_size == 16, "currently only support group size 16."
+        s_pack_size = min(max(self.warp_n // self.num_lanes, 1), 4)
+        num_s_lanes = 4 * 8
+        num_s_packs = ceil_divide(self.warp_n, s_pack_size * num_s_lanes)
+        warp_s = num_s_packs * num_s_lanes * s_pack_size
+        scale = scale.reshape(n // warp_s, -1, num_s_packs, 8, 4, s_pack_size, self.insn_k // group_size)
+        # (n_tiles, k_tiles, num_s_packs, 8, 4, s_pack_size, insn_k // group_size)
+        # =>
+        # (n_tiles, num_s_packs, s_pack_size, 4, 8, k_tiles, insn_k // group_size)
+        scale = scale.permute(0, 2, 5, 4, 3, 1, 6).contiguous()
+        return scale.view(n, -1)
+
     def check_if_micro_scale(self, group_size: int) -> bool:
         """
         Check if micro scale packing is required.

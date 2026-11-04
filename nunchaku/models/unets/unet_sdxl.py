@@ -25,6 +25,7 @@ from torch import nn
 
 from nunchaku.utils import get_precision
 
+from ...ops import nvfp4_sm100
 from ..attention import NunchakuBaseAttention, _patch_linear
 from ..attention_processors.sdxl import NunchakuSDXLFA2Processor
 from ..linear import SVDQW4A4Linear
@@ -519,6 +520,7 @@ class NunchakuSDXLUNet2DConditionModel(UNet2DConditionModel, NunchakuModelLoader
         converted_state_dict = convert_sdxl_state_dict(model_state_dict)
 
         unet.load_state_dict(converted_state_dict)
+        nvfp4_sm100.prepare_model(unet)
 
         return unet
 
